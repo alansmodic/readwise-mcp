@@ -1,0 +1,57 @@
+# Dependencies
+node_modules/
+
+# Build output (rebuilt in Docker)
+dist/
+build/
+*.tsbuildinfo
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.*
+
+# Tests
+tests/
+coverage/
+.nyc_output/
+jest.config.cjs
+
+# Documentation & examples
+*.md
+demo/
+examples/
+docs/
+Project Guide/
+
+# Editor/IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Deployment configs (not needed inside container)
+railway.json
+render.yaml
+serverless.yml
+smithery.yaml
+server.json
+
+# Scripts
+scripts/
+*.sh
+
+# Misc
+*.tgz
+.npm
+.eslintcache
+.eslintrc.*
+agent-skills/
