@@ -1,9 +1,10 @@
 // Third-party imports
 import express from 'express';
-import type { Express, Request, Response } from 'express';
+import type { Express, Request, Response, NextFunction } from 'express';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import { createServer } from 'http';
+import { timingSafeEqual } from 'crypto';
 import type { Server as HttpServer } from 'http';
 import { createRequire } from 'module';
 
@@ -84,6 +85,7 @@ export class ReadwiseMCPServer {
   private transportType: TransportType;
   private startTime: number;
   private isReady: boolean = false;
+  private authToken: string | null;
 
   /**
    * Create a new Readwise MCP server
@@ -164,6 +166,16 @@ export class ReadwiseMCPServer {
           credentials: true
         }));
       }
+
+      // Auth middleware for protected endpoints
+      this.authToken = process.env.SERVER_AUTH_TOKEN || null;
+      if (this.authToken) {
+        this.logger.info('Authentication enabled for MCP endpoints');
+        this.app.use(['/sse', '/messages', '/mcp'], this.createAuthMiddleware());
+      } else {
+        this.logger.warn('SERVER_AUTH_TOKEN not set - MCP endpoints are unauthenticated');
+      }
+
       this.server = createServer(this.app);
 
       // Register tools and prompts BEFORE creating MCP Server
@@ -389,6 +401,41 @@ export class ReadwiseMCPServer {
     });
   }
   
+  /**
+   * Create Express middleware that validates a bearer token or query token
+   */
+  private createAuthMiddleware(): (req: Request, res: Response, next: NextFunction) => void {
+    return (req: Request, res: Response, next: NextFunction) => {
+      // Allow CORS preflight through
+      if (req.method === 'OPTIONS') {
+        return next();
+      }
+
+      // Extract token from Authorization header or ?token= query param
+      const headerAuth = req.headers.authorization;
+      const headerToken = headerAuth?.startsWith('Bearer ') ? headerAuth.slice(7) : null;
+      const queryToken = typeof req.query.token === 'string' ? req.query.token : null;
+      const token = headerToken || queryToken;
+
+      if (!token) {
+        res.status(401).json({
+          error: 'Authentication required. Provide token via Authorization: Bearer <token> header or ?token=<token> query parameter.'
+        });
+        return;
+      }
+
+      // Timing-safe comparison to prevent timing attacks
+      const tokenBuf = Buffer.from(token);
+      const authBuf = Buffer.from(this.authToken!);
+      if (tokenBuf.length !== authBuf.length || !timingSafeEqual(tokenBuf, authBuf)) {
+        res.status(403).json({ error: 'Invalid authentication token.' });
+        return;
+      }
+
+      next();
+    };
+  }
+
   /**
    * Set up routes for the server
    */
