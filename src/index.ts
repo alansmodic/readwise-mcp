@@ -26,7 +26,21 @@ async function main() {
         alias: 'p',
         description: 'Port to listen on',
         type: 'number',
-        default: process.env.PORT ? parseInt(process.env.PORT, 10) : 8081
+        default: 8081
+      })
+      .middleware((argv) => {
+        // If --port wasn't explicitly provided, check PORT env var
+        // This avoids issues with shell expansion of $PORT in start commands
+        if (argv.port === 8081 && process.env.PORT) {
+          const envPort = parseInt(process.env.PORT, 10);
+          if (!isNaN(envPort) && envPort >= 0 && envPort < 65536) {
+            argv.port = envPort;
+          }
+        }
+        // Guard against NaN from yargs parsing (e.g. --port with empty value)
+        if (typeof argv.port !== 'number' || isNaN(argv.port) || argv.port < 0 || argv.port >= 65536) {
+          argv.port = 8081;
+        }
       })
       .option('transport', {
         alias: 't',
