@@ -113,7 +113,10 @@ export class ReadwiseMCPServer {
       // When running under inspector:
       // - Use port 3000 (required for inspector's proxy)
       // - Force SSE transport
-      this.port = isMCPInspector ? 3000 : port;
+      const resolvedPort = isMCPInspector ? 3000 : port;
+      this.port = (typeof resolvedPort === 'number' && !isNaN(resolvedPort) && resolvedPort >= 0 && resolvedPort < 65536)
+        ? resolvedPort
+        : 3000;
       this.transportType = isMCPInspector ? 'sse' : transport;
       this.startTime = Date.now();
 
