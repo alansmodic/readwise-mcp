@@ -77,6 +77,7 @@ const consoleLogger: Logger = {
 // Configuration schema for Smithery
 export const configSchema = z.object({
   readwiseApiKey: z.string().optional().describe("Your Readwise API access token. Get it from https://readwise.io/access_token"),
+  serverAuthToken: z.string().optional().describe("Optional authentication token to protect MCP endpoint access. Clients must include this as ?token=... query parameter or Authorization: Bearer header"),
   debug: z.boolean().default(false).describe("Enable verbose debug logging to troubleshoot issues")
 });
 
