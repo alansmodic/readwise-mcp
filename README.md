@@ -395,8 +395,20 @@ Or find it on the [Smithery Registry](https://smithery.ai/server/@IAmAlexander/r
 
 1. Click the button above or go to [Railway](https://railway.app)
 2. Connect your GitHub repo
-3. Add environment variable: `READWISE_API_KEY`
+3. Add environment variables:
+   - `READWISE_API_KEY`: Your Readwise API token
+   - `SERVER_AUTH_TOKEN`: (Optional) Authentication token to protect MCP endpoint access
 4. Deploy!
+
+**Connecting with Authentication:**
+```bash
+# If SERVER_AUTH_TOKEN is set, clients must authenticate:
+# Option 1: Bearer token header (recommended)
+Authorization: Bearer your_token_here
+
+# Option 2: Query parameter (works but less secure)
+https://your-app.railway.app/mcp?token=your_token_here
+```
 
 ### Render
 
