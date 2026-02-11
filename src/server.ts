@@ -86,6 +86,7 @@ export class ReadwiseMCPServer {
   private startTime: number;
   private isReady: boolean = false;
   private authToken: string | null;
+  private authenticatedSessions: Set<string> = new Set();
 
   /**
    * Create a new Readwise MCP server
@@ -412,6 +413,17 @@ export class ReadwiseMCPServer {
       // Allow CORS preflight through
       if (req.method === 'OPTIONS') {
         return next();
+      }
+
+      // Allow /messages requests through if the SSE session was already authenticated.
+      // When clients connect via GET /sse?token=xxx, the SSEServerTransport tells them
+      // to POST to /messages?sessionId=abc — without the auth token. We track which
+      // sessions were authenticated on the initial SSE connection and allow them through.
+      if (req.path === '/messages' && req.method === 'POST') {
+        const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : null;
+        if (sessionId && this.authenticatedSessions.has(sessionId)) {
+          return next();
+        }
       }
 
       // Extract token from Authorization header or ?token= query param
@@ -953,21 +965,33 @@ export class ReadwiseMCPServer {
         // The first parameter is the message endpoint path for POST requests
         const transport = new SSEServerTransport('/messages', res);
 
-        // Generate session ID and store transport
-        const sessionId = `sse-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        sseTransports.set(sessionId, transport);
+        // Start the transport — this sends the endpoint event to the client
+        // and makes transport.sessionId available
+        await transport.start();
+
+        // Use the transport's own session ID for the lookup map
+        const sessionId = (transport as any).sessionId || (transport as any)._sessionId;
+        if (sessionId) {
+          sseTransports.set(sessionId, transport);
+          // Track this session as authenticated so POST /messages can bypass token checks
+          if (this.authToken) {
+            this.authenticatedSessions.add(sessionId);
+          }
+        }
 
         // Connect transport to MCP server
         // SDK handles all JSON-RPC messages including initialize and list_tools
-        await transport.start();
         await this.mcpServer.connect(transport);
-        
+
         this.logger.info(`SSE transport connected to MCP server (session: ${sessionId})`);
 
         // Handle client disconnect
         req.on('close', () => {
           this.logger.debug(`Client disconnected (session: ${sessionId})`);
-          sseTransports.delete(sessionId);
+          if (sessionId) {
+            sseTransports.delete(sessionId);
+            this.authenticatedSessions.delete(sessionId);
+          }
           transport.close().catch(err => {
             this.logger.error('Error closing transport:', err);
           });
@@ -976,12 +1000,18 @@ export class ReadwiseMCPServer {
         // Handle transport errors
         transport.onerror = (error) => {
           this.logger.error('Transport error:', error);
-          sseTransports.delete(sessionId);
+          if (sessionId) {
+            sseTransports.delete(sessionId);
+            this.authenticatedSessions.delete(sessionId);
+          }
         };
 
         transport.onclose = () => {
           this.logger.debug(`Transport closed (session: ${sessionId})`);
-          sseTransports.delete(sessionId);
+          if (sessionId) {
+            sseTransports.delete(sessionId);
+            this.authenticatedSessions.delete(sessionId);
+          }
         };
 
       } catch (error) {
@@ -1005,7 +1035,7 @@ export class ReadwiseMCPServer {
     this.app.post('/messages', async (req: Request, res: Response) => {
       try {
         const sessionId = req.query.sessionId as string;
-        
+
         if (!sessionId) {
           this.logger.warn('POST /messages request missing sessionId');
           res.status(400).json({
@@ -1035,17 +1065,8 @@ export class ReadwiseMCPServer {
           return;
         }
 
-        // Handle the POST message through the transport
-        // The SDK's SSEServerTransport should handle JSON-RPC messages automatically
-        // If handlePostMessage exists, use it; otherwise, the SDK handles it via the connected transport
-        if (typeof (transport as any).handlePostMessage === 'function') {
-          await (transport as any).handlePostMessage(req, res, req.body);
-        } else {
-          // The SDK should handle messages automatically through the connected transport
-          // For now, acknowledge receipt - the SDK will process it
-          this.logger.debug('Message received for SSE session, SDK will handle via connected transport');
-          res.json({ jsonrpc: '2.0', id: req.body?.id || null, result: {} });
-        }
+        // Route the POST message through the SSEServerTransport
+        await transport.handlePostMessage(req, res, req.body);
       } catch (error) {
         this.logger.error('Error handling POST /messages:', error as any);
         if (!res.headersSent) {
